@@ -954,7 +954,7 @@ class OpenAIBackendAPI:
         references = [self._upload_image(image, f"image_{idx}.png") for idx, image in enumerate(images or [], start=1)]
         self._bootstrap()
         requirements = self._get_auth_chat_requirements()
-        final_prompt = self._build_image_prompt(prompt, "1:1")
+        final_prompt = self._build_image_prompt(prompt, None)
         conduit_token = self._prepare_image_conversation(final_prompt, requirements, model)
         sse = self._start_image_generation(final_prompt, requirements, conduit_token, model, references)
         try:
@@ -1300,14 +1300,14 @@ class OpenAIBackendAPI:
         """返回当前模式下可用模型，格式对齐 OpenAI `/v1/models`。"""
         return self._normalize_models(self._get_models_raw(authenticated=bool(self.access_token)))
 
-    def images_generations(self, prompt: str, model: str = "gpt-image-2", size: str = "1:1",
+    def images_generations(self, prompt: str, model: str = "gpt-image-2", size: str | None = None,
                            response_format: str = "url") -> Dict[str, Any]:
         """返回 OpenAI `/v1/images/generations` 风格结果。"""
         if self._is_codex_image_model(model):
             return self._run_codex_image_task(prompt, response_format=response_format)
         return self._run_image_task(prompt, model, size, response_format=response_format)
 
-    def images_edits(self, image: str | list[str], prompt: str, model: str = "gpt-image-2", size: str = "1:1",
+    def images_edits(self, image: str | list[str], prompt: str, model: str = "gpt-image-2", size: str | None = None,
                      response_format: str = "url") -> Dict[str, Any]:
         """返回 OpenAI `/v1/images/edits` 风格结果。"""
         images = [image] if isinstance(image, str) else image
