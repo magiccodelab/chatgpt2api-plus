@@ -8,6 +8,7 @@ import { CPAPoolsCard } from "./components/cpa-pools-card";
 import { ImportBrowserDialog } from "./components/import-browser-dialog";
 import { SettingsHeader } from "./components/settings-header";
 import { Sub2APIConnections } from "./components/sub2api-connections";
+import { UserTokensCard } from "./components/user-tokens-card";
 import { useSettingsStore } from "./store";
 
 function SettingsDataController() {
@@ -49,6 +50,7 @@ export default function SettingsPage() {
       <SettingsHeader />
       <section className="space-y-6">
         <ConfigCard />
+        <UserTokensCard />
         <CPAPoolsCard />
         <Sub2APIConnections />
       </section>

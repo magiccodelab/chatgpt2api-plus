@@ -27,6 +27,10 @@ export function TopNav() {
     return null;
   }
 
+  if (pathname.startsWith("/u")) {
+    return null;
+  }
+
   return (
     <header>
       <div className="flex h-12 items-start justify-between pt-1">

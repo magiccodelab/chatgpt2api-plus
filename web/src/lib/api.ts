@@ -362,3 +362,47 @@ export async function testProxy(url?: string) {
     body: { url: url ?? "" },
   });
 }
+
+// ── User Tokens (admin-managed) ────────────────────────────────────
+
+export type UserTokenItem = {
+  id: string;
+  name: string;
+  notes: string;
+  token_masked: string;
+  token_plain?: string;
+  daily_limit: number;
+  used_today: number;
+  remaining: number;
+  last_reset_date: string | null;
+  reset_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchUserTokens() {
+  return httpRequest<{ items: UserTokenItem[] }>("/api/admin/user-tokens");
+}
+
+export async function createUserToken(body: { name: string; daily_limit: number; notes?: string }) {
+  return httpRequest<{ item: UserTokenItem; items: UserTokenItem[] }>("/api/admin/user-tokens", {
+    method: "POST",
+    body,
+  });
+}
+
+export async function updateUserToken(
+  id: string,
+  updates: { name?: string; daily_limit?: number; notes?: string; reset_usage?: boolean },
+) {
+  return httpRequest<{ item: UserTokenItem; items: UserTokenItem[] }>(`/api/admin/user-tokens/${id}`, {
+    method: "POST",
+    body: updates,
+  });
+}
+
+export async function deleteUserToken(id: string) {
+  return httpRequest<{ items: UserTokenItem[] }>(`/api/admin/user-tokens/${id}`, {
+    method: "DELETE",
+  });
+}

@@ -1,6 +1,6 @@
 "use client";
 import { ArrowUp, ImagePlus, LoaderCircle, X } from "lucide-react";
-import { useMemo, useState, type ClipboardEvent, type RefObject } from "react";
+import { useMemo, useState, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 
 import { ImageLightbox } from "@/components/image-lightbox";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ type ImageComposerProps = {
   onPickReferenceImage: () => void;
   onReferenceImageChange: (files: File[]) => void | Promise<void>;
   onRemoveReferenceImage: (index: number) => void;
+  forceSingleImage?: boolean;
+  quotaSlot?: ReactNode;
 };
 
 export function ImageComposer({
@@ -43,6 +45,8 @@ export function ImageComposer({
   onPickReferenceImage,
   onReferenceImageChange,
   onRemoveReferenceImage,
+  forceSingleImage = false,
+  quotaSlot,
 }: ImageComposerProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -157,25 +161,33 @@ export function ImageComposer({
                       {referenceImages.length > 0 ? "继续添加参考图" : "上传参考图"}
                     </Button>
                   )}
-                  <div className="rounded-full bg-stone-100 px-3 py-2 text-xs font-medium text-stone-600">剩余额度 {availableQuota}</div>
+                  {quotaSlot !== undefined ? (
+                    quotaSlot
+                  ) : (
+                    <div className="rounded-full bg-stone-100 px-3 py-2 text-xs font-medium text-stone-600">
+                      剩余额度 {availableQuota}
+                    </div>
+                  )}
                   {activeTaskCount > 0 && (
                     <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                       <LoaderCircle className="size-3 animate-spin" />
                       {activeTaskCount} 个任务处理中或排队中
                     </div>
                   )}
-                  <div className="flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1">
-                    <span className="text-sm font-medium text-stone-700">张数</span>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="10"
-                      step="1"
-                      value={imageCount}
-                      onChange={(event) => onImageCountChange(event.target.value)}
-                      className="h-8 w-[64px] border-0 bg-transparent px-0 text-center text-sm font-medium text-stone-700 shadow-none focus-visible:ring-0"
-                    />
-                  </div>
+                  {forceSingleImage ? null : (
+                    <div className="flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1">
+                      <span className="text-sm font-medium text-stone-700">张数</span>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="10"
+                        step="1"
+                        value={imageCount}
+                        onChange={(event) => onImageCountChange(event.target.value)}
+                        className="h-8 w-[64px] border-0 bg-transparent px-0 text-center text-sm font-medium text-stone-700 shadow-none focus-visible:ring-0"
+                      />
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <ModeButton active={mode === "generate"} onClick={() => onModeChange("generate")}>
                       文生图
