@@ -1,6 +1,8 @@
 import base64
 import json
 import hashlib
+import queue
+import threading
 import uuid
 import time
 from pathlib import Path
@@ -70,6 +72,49 @@ def sse_json_stream(items) -> Iterator[str]:
             "error": str(exc),
         })
         yield f"data: {json.dumps({'error': {'message': str(exc), 'type': exc.__class__.__name__}}, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
+
+
+def sse_json_stream_with_heartbeat(items, heartbeat_interval: float = 15.0) -> Iterator[str]:
+    yield ": stream-open\n\n"
+    q: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+
+    def producer() -> None:
+        try:
+            for item in items:
+                q.put(("data", item))
+        except Exception as exc:
+            q.put(("error", exc))
+        finally:
+            q.put(("end", None))
+
+    thread = threading.Thread(target=producer, name="sse-producer", daemon=True)
+    thread.start()
+
+    while True:
+        try:
+            kind, payload = q.get(timeout=heartbeat_interval)
+        except queue.Empty:
+            yield ": heartbeat\n\n"
+            continue
+        if kind == "data":
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            continue
+        if kind == "error":
+            exc = payload
+            logger.warning({
+                "event": "sse_stream_error",
+                "error_type": exc.__class__.__name__,
+                "error": str(exc),
+            })
+            error_payload = {
+                "type": "error",
+                "code": getattr(exc, "code", "upstream_error"),
+                "message": str(exc),
+            }
+            yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+            break
+        break
     yield "data: [DONE]\n\n"
 
 
