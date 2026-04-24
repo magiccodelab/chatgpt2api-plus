@@ -23,6 +23,7 @@ export type Account = {
   success: number;
   fail: number;
   lastUsedAt: string | null;
+  proxy?: string | null;
 };
 
 type AccountListResponse = {
@@ -73,10 +74,14 @@ export async function fetchAccounts() {
   return httpRequest<AccountListResponse>("/api/accounts");
 }
 
-export async function createAccounts(tokens: string[]) {
+export async function createAccounts(tokens: string[], proxy?: string) {
+  const trimmedProxy = (proxy ?? "").trim();
   return httpRequest<AccountMutationResponse>("/api/accounts", {
     method: "POST",
-    body: { tokens },
+    body: {
+      tokens,
+      ...(trimmedProxy ? { proxy: trimmedProxy } : {}),
+    },
   });
 }
 
@@ -100,6 +105,7 @@ export async function updateAccount(
     type?: AccountType;
     status?: AccountStatus;
     quota?: number;
+    proxy?: string | null;
   },
 ) {
   return httpRequest<AccountUpdateResponse>("/api/accounts/update", {

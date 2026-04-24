@@ -1,20 +1,42 @@
-"""Global outbound proxy helpers for upstream ChatGPT and CPA requests."""
+"""Global outbound proxy helpers for upstream ChatGPT and CPA requests.
+
+Precedence for any outbound request is: per-account proxy > global proxy >
+direct. Per-account overrides are passed via `build_session_kwargs(override_proxy=...)`.
+An invalid override is logged and silently falls back to the global proxy so that a
+single bad field cannot wedge the whole account.
+"""
 
 from __future__ import annotations
 
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from curl_cffi.requests import Session
 
 from services.config import config
+from utils.log import logger
 
 
 class ProxySettingsStore:
-    def build_session_kwargs(self, **session_kwargs) -> dict[str, object]:
-        proxy = config.get_proxy_settings()
-        if proxy:
-            session_kwargs["proxy"] = proxy
+    def build_session_kwargs(
+            self,
+            *,
+            override_proxy: str | None = None,
+            **session_kwargs,
+    ) -> dict[str, object]:
+        candidate = _clean(override_proxy)
+        if candidate:
+            if _is_valid_proxy_url(candidate):
+                session_kwargs["proxy"] = candidate
+                return session_kwargs
+            logger.warning({
+                "event": "proxy_override_invalid",
+                "proxy": mask_proxy_url(candidate),
+                "fallback": "global",
+            })
+        global_proxy = config.get_proxy_settings()
+        if global_proxy:
+            session_kwargs["proxy"] = global_proxy
         return session_kwargs
 
 
@@ -25,6 +47,25 @@ def _clean(value: object) -> str:
 def _is_valid_proxy_url(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.scheme in {"http", "https", "socks5", "socks5h"} and bool(parsed.netloc)
+
+
+def mask_proxy_url(url: str) -> str:
+    """Return the proxy URL with any user:password credentials replaced by ***."""
+    candidate = _clean(url)
+    if not candidate:
+        return ""
+    try:
+        parsed = urlparse(candidate)
+    except ValueError:
+        return candidate
+    if not parsed.hostname:
+        return candidate
+    netloc = parsed.hostname
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    if parsed.username or parsed.password:
+        netloc = f"***@{netloc}"
+    return urlunparse(parsed._replace(netloc=netloc))
 
 
 def test_proxy(url: str, *, timeout: float = 15.0) -> dict:

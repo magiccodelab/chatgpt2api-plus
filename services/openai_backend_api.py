@@ -66,7 +66,13 @@ class OpenAIBackendAPI:
         self.session_id = self.fp["oai-session-id"]
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
+        account_proxy: str | None = None
+        if self.access_token:
+            account = account_service.get_account(self.access_token)
+            if isinstance(account, dict):
+                account_proxy = account.get("proxy")
         self.session = requests.Session(**proxy_settings.build_session_kwargs(
+            override_proxy=account_proxy,
             impersonate=self.fp["impersonate"],
             verify=True,
         ))

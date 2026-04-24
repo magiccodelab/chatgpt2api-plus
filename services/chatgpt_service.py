@@ -824,6 +824,7 @@ class ChatGPTService:
             raise ImageGenerationError("image is required")
 
         for index in range(1, n + 1):
+            network_retries = 0
             while True:
                 try:
                     request_token = self.account_service.get_available_access_token()
@@ -866,9 +867,22 @@ class ChatGPTService:
                     })
                     break
                 except Exception as exc:
-                    account = self.account_service.mark_image_result(request_token, success=False)
                     message = str(exc)
                     last_error = message
+                    if is_retryable_network_error(message) and network_retries < NETWORK_MAX_RETRY:
+                        network_retries += 1
+                        backoff = _retry_backoff(network_retries - 1)
+                        logger.warning({
+                            "event": "image_edit_network_retry",
+                            "request_token": request_token,
+                            "attempt": network_retries,
+                            "max_attempts": NETWORK_MAX_RETRY,
+                            "backoff_sec": backoff,
+                            "error": message,
+                        })
+                        time.sleep(backoff)
+                        continue
+                    account = self.account_service.mark_image_result(request_token, success=False)
                     logger.warning({
                         "event": "image_edit_fail",
                         "request_token": request_token,
@@ -910,6 +924,7 @@ class ChatGPTService:
         encoded_images = self._encode_images(normalized_images)
 
         for index in range(1, n + 1):
+            network_retries = 0
             while True:
                 try:
                     request_token = self.account_service.get_available_access_token()
@@ -965,9 +980,26 @@ class ChatGPTService:
                     })
                     break
                 except Exception as exc:
-                    account = self.account_service.mark_image_result(request_token, success=False)
                     message = str(exc)
                     last_error = message
+                    if (
+                            not emitted_for_request
+                            and is_retryable_network_error(message)
+                            and network_retries < NETWORK_MAX_RETRY
+                    ):
+                        network_retries += 1
+                        backoff = _retry_backoff(network_retries - 1)
+                        logger.warning({
+                            "event": "image_edit_stream_network_retry",
+                            "request_token": request_token,
+                            "attempt": network_retries,
+                            "max_attempts": NETWORK_MAX_RETRY,
+                            "backoff_sec": backoff,
+                            "error": message,
+                        })
+                        time.sleep(backoff)
+                        continue
+                    account = self.account_service.mark_image_result(request_token, success=False)
                     logger.warning({
                         "event": "image_edit_stream_fail",
                         "request_token": request_token,

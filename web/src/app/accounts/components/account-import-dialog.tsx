@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { ProxyInput } from "@/components/proxy-input";
 import { createAccounts, type Account } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -108,6 +109,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
   const [method, setMethod] = useState<ImportMethod>("menu");
   const [tokenInput, setTokenInput] = useState("");
   const [sessionInput, setSessionInput] = useState("");
+  const [importProxy, setImportProxy] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingCpaImport, setPendingCpaImport] = useState<PendingCpaImport | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -119,6 +121,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
     setMethod("menu");
     setTokenInput("");
     setSessionInput("");
+    setImportProxy("");
     setPendingCpaImport(null);
     setConfirmOpen(false);
   };
@@ -130,7 +133,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
     }
   };
 
-  const submitTokens = async (tokens: string[], successText?: string) => {
+  const submitTokens = async (tokens: string[], successText?: string, proxy?: string) => {
     const normalizedTokens = tokens.map((item) => item.trim()).filter(Boolean);
 
     if (normalizedTokens.length === 0) {
@@ -140,7 +143,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
 
     setIsSubmitting(true);
     try {
-      const data = await createAccounts(normalizedTokens);
+      const data = await createAccounts(normalizedTokens, proxy);
       onImported(data.items);
       setOpen(false);
       resetState();
@@ -164,7 +167,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
   };
 
   const handleImportTokenText = async () => {
-    await submitTokens(splitTokens(tokenInput), "Access Token 导入完成");
+    await submitTokens(splitTokens(tokenInput), "Access Token 导入完成", importProxy.trim() || undefined);
   };
 
   const handleTxtSelected = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -309,6 +312,15 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             className="hidden"
             onChange={(event) => void handleTxtSelected(event)}
           />
+          <div className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
+            <label className="text-sm font-medium text-stone-700">账号代理（可选）</label>
+            <ProxyInput
+              value={importProxy}
+              onChange={setImportProxy}
+              disabled={isSubmitting}
+              helperText="本次导入的每个新账号都会套用这个代理；留空则不设置（可后续在列表页为单个账号修改）。"
+            />
+          </div>
         </div>
       );
     }

@@ -142,6 +142,7 @@ class AccountService:
         normalized["success"] = int(normalized.get("success") or 0)
         normalized["fail"] = int(normalized.get("fail") or 0)
         normalized["last_used_at"] = normalized.get("last_used_at")
+        normalized["proxy"] = self._clean_token(normalized.get("proxy")) or None
         return normalized
 
     @staticmethod
@@ -222,6 +223,7 @@ class AccountService:
                 "success": int(account.get("success") or 0),
                 "fail": int(account.get("fail") or 0),
                 "lastUsedAt": account.get("last_used_at"),
+                "proxy": account.get("proxy"),
             }
             for account in accounts
             if (access_token := self._clean_token(account.get("access_token")))
@@ -313,10 +315,12 @@ class AccountService:
                    and (token := self._clean_token(item.get("access_token")))
             ]
 
-    def add_accounts(self, tokens: list[str]) -> dict:
+    def add_accounts(self, tokens: list[str], default_proxy: str | None = None) -> dict:
         cleaned_tokens = self._clean_tokens(tokens)
         if not cleaned_tokens:
             return {"added": 0, "skipped": 0, "items": self.list_accounts()}
+
+        default_proxy_value = self._clean_token(default_proxy) or None
 
         with self._lock:
             indexed = {self._clean_token(item.get("access_token")): dict(item) for item in self._accounts}
@@ -327,6 +331,8 @@ class AccountService:
                 if current is None:
                     added += 1
                     current = {}
+                    if default_proxy_value:
+                        current["proxy"] = default_proxy_value
                 else:
                     skipped += 1
                 account = self._normalize_account(
@@ -418,7 +424,13 @@ class AccountService:
         headers, impersonate = self._build_remote_headers(access_token)
         token_ref = anonymize_token(access_token)
         print(f"[account-refresh] start {token_ref}")
-        session = Session(**proxy_settings.build_session_kwargs(impersonate=impersonate, verify=True))
+        account = self.get_account(access_token)
+        account_proxy = account.get("proxy") if account else None
+        session = Session(**proxy_settings.build_session_kwargs(
+            override_proxy=account_proxy,
+            impersonate=impersonate,
+            verify=True,
+        ))
         session.headers.update(headers)
         try:
             with ThreadPoolExecutor(max_workers=2) as executor:

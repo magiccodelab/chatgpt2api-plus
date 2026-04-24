@@ -12,6 +12,7 @@ from api.support import (
     sanitize_sub2api_servers,
 )
 from services.account_service import account_service
+from services.proxy_service import _is_valid_proxy_url
 from services.cpa_service import cpa_config, cpa_import_service, list_remote_files
 from services.sub2api_service import (
     list_remote_accounts as sub2api_list_remote_accounts,
@@ -23,6 +24,7 @@ from services.sub2api_service import (
 
 class AccountCreateRequest(BaseModel):
     tokens: list[str] = Field(default_factory=list)
+    proxy: str | None = None
 
 
 class AccountDeleteRequest(BaseModel):
@@ -38,6 +40,7 @@ class AccountUpdateRequest(BaseModel):
     type: str | None = None
     status: str | None = None
     quota: int | None = None
+    proxy: str | None = None
 
 
 class CPAPoolCreateRequest(BaseModel):
@@ -92,7 +95,13 @@ def create_router() -> APIRouter:
         tokens = [str(token or "").strip() for token in body.tokens if str(token or "").strip()]
         if not tokens:
             raise HTTPException(status_code=400, detail={"error": "tokens is required"})
-        result = account_service.add_accounts(tokens)
+        default_proxy = str(body.proxy or "").strip() or None
+        if default_proxy and not _is_valid_proxy_url(default_proxy):
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "proxy url is invalid", "hint": "expected http(s)://host:port or socks5(h)://host:port"},
+            )
+        result = account_service.add_accounts(tokens, default_proxy=default_proxy)
         refresh_result = account_service.refresh_accounts(tokens)
         return {
             **result,
@@ -125,7 +134,19 @@ def create_router() -> APIRouter:
         access_token = str(body.access_token or "").strip()
         if not access_token:
             raise HTTPException(status_code=400, detail={"error": "access_token is required"})
-        updates = {key: value for key, value in {"type": body.type, "status": body.status, "quota": body.quota}.items() if value is not None}
+        updates = {
+            key: value
+            for key, value in {"type": body.type, "status": body.status, "quota": body.quota}.items()
+            if value is not None
+        }
+        if body.proxy is not None:
+            proxy_value = str(body.proxy).strip()
+            if proxy_value and not _is_valid_proxy_url(proxy_value):
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": "proxy url is invalid", "hint": "expected http(s)://host:port or socks5(h)://host:port"},
+                )
+            updates["proxy"] = proxy_value or None
         if not updates:
             raise HTTPException(status_code=400, detail={"error": "no updates provided"})
         account = account_service.update_account(access_token, updates)

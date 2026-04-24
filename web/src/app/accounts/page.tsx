@@ -11,6 +11,7 @@ import {
   CircleOff,
   Copy,
   Download,
+  Globe,
   LoaderCircle,
   Pencil,
   RefreshCw,
@@ -33,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ProxyInput, maskProxyUrl } from "@/components/proxy-input";
 import {
   Select,
   SelectContent,
@@ -192,6 +194,7 @@ export default function AccountsPage() {
   const [editType, setEditType] = useState<AccountType>("Free");
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editQuota, setEditQuota] = useState("0");
+  const [editProxy, setEditProxy] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -327,6 +330,7 @@ export default function AccountsPage() {
     setEditType(account.type);
     setEditStatus(account.status);
     setEditQuota(String(account.quota));
+    setEditProxy(account.proxy ?? "");
   };
 
   const handleUpdateAccount = async () => {
@@ -340,6 +344,7 @@ export default function AccountsPage() {
         type: editType,
         status: editStatus,
         quota: Number(editQuota || 0),
+        proxy: editProxy.trim(),
       });
       setAccounts(normalizeAccounts(data.items));
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.id === id)));
@@ -459,6 +464,15 @@ export default function AccountsPage() {
                 value={editQuota}
                 onChange={(event) => setEditQuota(event.target.value)}
                 className="h-11 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-stone-700">账号代理</label>
+              <ProxyInput
+                value={editProxy}
+                onChange={setEditProxy}
+                disabled={isUpdating}
+                helperText="留空表示使用全局代理；优先级：账号代理 > 全局代理 > 直连。"
               />
             </div>
           </div>
@@ -723,6 +737,14 @@ export default function AccountsPage() {
                         <td className="px-4 py-3 text-stone-500">{account.fail}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 text-stone-400">
+                            {account.proxy ? (
+                              <span
+                                className="rounded-lg p-2 text-emerald-600"
+                                title={`代理：${maskProxyUrl(account.proxy)}`}
+                              >
+                                <Globe className="size-4" />
+                              </span>
+                            ) : null}
                             <button
                               type="button"
                               className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
