@@ -83,6 +83,13 @@ def sse_openai_image_stream(items, heartbeat_interval: float = 15.0) -> Iterator
     逆向 ChatGPT 官网拿不到真正的 partial image 二进制，因此仅发 `image_generation.completed`
     事件，等价于 OpenAI 文档中 `partial_images=0` 的合法行为。
     """
+    stream_id = uuid.uuid4().hex[:8]
+    started_at = time.time()
+    logger.info({
+        "event": "sse_image_stream_open",
+        "stream_id": stream_id,
+        "heartbeat_interval_sec": heartbeat_interval,
+    })
     yield ": stream-open\n\n"
     q: "queue.Queue[tuple[str, Any]]" = queue.Queue()
 
@@ -95,20 +102,41 @@ def sse_openai_image_stream(items, heartbeat_interval: float = 15.0) -> Iterator
         finally:
             q.put(("end", None))
 
-    thread = threading.Thread(target=producer, name="sse-openai-image-producer", daemon=True)
+    thread = threading.Thread(target=producer, name=f"sse-openai-image-{stream_id}", daemon=True)
     thread.start()
 
     image_index = 0
+    heartbeat_count = 0
+    end_reason = "ok"
     while True:
         try:
             kind, payload = q.get(timeout=heartbeat_interval)
         except queue.Empty:
+            heartbeat_count += 1
+            logger.info({
+                "event": "sse_image_stream_heartbeat",
+                "stream_id": stream_id,
+                "elapsed_sec": round(time.time() - started_at, 2),
+                "heartbeat_count": heartbeat_count,
+                "images_emitted": image_index,
+            })
             yield ": heartbeat\n\n"
             continue
         if kind == "data":
             if not isinstance(payload, dict):
                 continue
-            if str(payload.get("object") or "") != "image.generation.result":
+            obj = str(payload.get("object") or "")
+            if obj == "image.generation.progress":
+                logger.info({
+                    "event": "sse_image_stream_upstream_progress",
+                    "stream_id": stream_id,
+                    "elapsed_sec": round(time.time() - started_at, 2),
+                    "upstream_event_type": payload.get("upstream_event_type"),
+                    "index": payload.get("index"),
+                    "total": payload.get("total"),
+                })
+                continue
+            if obj != "image.generation.result":
                 continue
             data_list = payload.get("data") if isinstance(payload.get("data"), list) else []
             for item in data_list:
@@ -127,14 +155,26 @@ def sse_openai_image_stream(items, heartbeat_interval: float = 15.0) -> Iterator
                     event_payload["url"] = str(url)
                 if not b64 and not url:
                     continue
+                logger.info({
+                    "event": "sse_image_stream_completed_emit",
+                    "stream_id": stream_id,
+                    "elapsed_sec": round(time.time() - started_at, 2),
+                    "index": image_index,
+                    "b64_size_bytes": len(b64) if b64 else 0,
+                    "has_url": bool(url),
+                })
                 yield "event: image_generation.completed\n"
                 yield f"data: {json.dumps(event_payload, ensure_ascii=False)}\n\n"
                 image_index += 1
             continue
         if kind == "error":
             exc = payload
+            end_reason = "error"
             logger.warning({
-                "event": "sse_openai_image_stream_error",
+                "event": "sse_image_stream_error",
+                "stream_id": stream_id,
+                "elapsed_sec": round(time.time() - started_at, 2),
+                "images_emitted": image_index,
                 "error_type": exc.__class__.__name__,
                 "error": str(exc),
             })
@@ -148,10 +188,25 @@ def sse_openai_image_stream(items, heartbeat_interval: float = 15.0) -> Iterator
             break
         # kind == "end"
         break
+    logger.info({
+        "event": "sse_image_stream_end",
+        "stream_id": stream_id,
+        "elapsed_sec": round(time.time() - started_at, 2),
+        "images_emitted": image_index,
+        "heartbeat_count": heartbeat_count,
+        "reason": end_reason,
+    })
     yield "data: [DONE]\n\n"
 
 
 def sse_json_stream_with_heartbeat(items, heartbeat_interval: float = 15.0) -> Iterator[str]:
+    stream_id = uuid.uuid4().hex[:8]
+    started_at = time.time()
+    logger.info({
+        "event": "sse_stream_open",
+        "stream_id": stream_id,
+        "heartbeat_interval_sec": heartbeat_interval,
+    })
     yield ": stream-open\n\n"
     q: "queue.Queue[tuple[str, Any]]" = queue.Queue()
 
@@ -164,22 +219,38 @@ def sse_json_stream_with_heartbeat(items, heartbeat_interval: float = 15.0) -> I
         finally:
             q.put(("end", None))
 
-    thread = threading.Thread(target=producer, name="sse-producer", daemon=True)
+    thread = threading.Thread(target=producer, name=f"sse-producer-{stream_id}", daemon=True)
     thread.start()
 
+    chunks_emitted = 0
+    heartbeat_count = 0
+    end_reason = "ok"
     while True:
         try:
             kind, payload = q.get(timeout=heartbeat_interval)
         except queue.Empty:
+            heartbeat_count += 1
+            logger.info({
+                "event": "sse_stream_heartbeat",
+                "stream_id": stream_id,
+                "elapsed_sec": round(time.time() - started_at, 2),
+                "heartbeat_count": heartbeat_count,
+                "chunks_emitted": chunks_emitted,
+            })
             yield ": heartbeat\n\n"
             continue
         if kind == "data":
+            chunks_emitted += 1
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             continue
         if kind == "error":
             exc = payload
+            end_reason = "error"
             logger.warning({
                 "event": "sse_stream_error",
+                "stream_id": stream_id,
+                "elapsed_sec": round(time.time() - started_at, 2),
+                "chunks_emitted": chunks_emitted,
                 "error_type": exc.__class__.__name__,
                 "error": str(exc),
             })
@@ -191,6 +262,14 @@ def sse_json_stream_with_heartbeat(items, heartbeat_interval: float = 15.0) -> I
             yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
             break
         break
+    logger.info({
+        "event": "sse_stream_end",
+        "stream_id": stream_id,
+        "elapsed_sec": round(time.time() - started_at, 2),
+        "chunks_emitted": chunks_emitted,
+        "heartbeat_count": heartbeat_count,
+        "reason": end_reason,
+    })
     yield "data: [DONE]\n\n"
 
 
