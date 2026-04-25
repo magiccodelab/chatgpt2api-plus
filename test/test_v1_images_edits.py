@@ -23,15 +23,12 @@ def summarize_chunk(chunk: dict[str, object]) -> dict[str, object]:
     data = chunk.get("data")
     data_items = data if isinstance(data, list) else []
     return {
-        "object": chunk.get("object"),
+        "type": chunk.get("type"),
         "index": chunk.get("index"),
-        "total": chunk.get("total"),
         "created": chunk.get("created"),
-        "finish_reason": chunk.get("finish_reason"),
-        "progress_text": chunk.get("progress_text"),
-        "upstream_event_type": chunk.get("upstream_event_type"),
         "data_count": len(data_items),
-        "has_b64_json": any(isinstance(item, dict) and bool(item.get("b64_json")) for item in data_items),
+        "has_b64_json": bool(chunk.get("b64_json"))
+        or any(isinstance(item, dict) and bool(item.get("b64_json")) for item in data_items),
     }
 
 
@@ -113,16 +110,16 @@ class ImageEditsTests(unittest.TestCase):
                 except Exception:
                     continue
                 elapsed = time.time() - started_at
-                if isinstance(chunk.get("error"), dict):
-                    stream_errors.append(chunk["error"])
+                chunk_type = str(chunk.get("type") or "")
+                if chunk_type == "error" or isinstance(chunk.get("error"), dict):
+                    stream_errors.append(chunk.get("error") or chunk)
                 logger.info({
                     "event": "test_images_edits_stream_chunk",
                     "elapsed_seconds": round(elapsed, 2),
                     "chunk": summarize_chunk(chunk),
                 })
-                data = chunk.get("data")
-                if isinstance(data, list):
-                    image_items.extend(item for item in data if isinstance(item, dict))
+                if chunk_type == "image_generation.completed" and chunk.get("b64_json"):
+                    image_items.append(chunk)
         finally:
             response.close()
 

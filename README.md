@@ -142,14 +142,47 @@ curl http://localhost:8000/v1/images/generations \
 <summary>字段说明</summary>
 <br>
 
-| 字段                | 说明                                                 |
-|:------------------|:---------------------------------------------------|
-| `model`           | 图片模型，当前可用值以 `/v1/models` 返回结果为准，推荐使用 `gpt-image-2` |
-| `prompt`          | 图片生成提示词                                            |
-| `n`               | 生成数量，当前后端限制为 `1-4`                                 |
-| `response_format` | 当前请求模型中包含该字段，默认值为 `b64_json`                       |
+| 字段                | 说明                                                                                        |
+|:------------------|:------------------------------------------------------------------------------------------|
+| `model`           | 图片模型，当前可用值以 `/v1/models` 返回结果为准，推荐使用 `gpt-image-2`                                        |
+| `prompt`          | 图片生成提示词                                                                                   |
+| `n`               | 生成数量，当前后端限制为 `1-4`                                                                        |
+| `response_format` | 当前请求模型中包含该字段，默认值为 `b64_json`                                                              |
+| `stream`          | 可选，`true` 时走 OpenAI 兼容 SSE 流式输出，**强烈建议长任务开启以避免反向代理超时**（默认 60s/100s 中间层会断流，开启后服务端每 15s 心跳保活） |
+| `partial_images`  | 可选，`0-3`。受限于上游协议拿不到真正的 partial image 二进制，本接口接受该字段但不会发送 partial 事件，仅在最终成像后发送 `image_generation.completed` 事件（等价于官方 `partial_images=0`） |
 
 <br>
+
+#### 流式响应（SSE）
+
+`stream: true` 时返回标准 OpenAI 图片 streaming 协议，每张图一条 `image_generation.completed` 事件，
+连接空闲时服务端会每 15 秒发送 SSE 注释 (`: heartbeat`) 维持长连接。
+
+```
+: stream-open
+
+: heartbeat
+
+event: image_generation.completed
+data: {"type":"image_generation.completed","b64_json":"...","created":1735000000,"index":0}
+
+data: [DONE]
+```
+
+OpenAI 官方 Python/Node SDK 可直接消费该格式：
+
+```python
+stream = client.images.generate(
+    model="gpt-image-2",
+    prompt="a cat in space",
+    stream=True,
+    partial_images=0,
+)
+for event in stream:
+    if event.type == "image_generation.completed":
+        ...
+```
+
 </details>
 </details>
 
@@ -172,12 +205,14 @@ curl http://localhost:8000/v1/images/edits \
 <summary>字段说明</summary>
 <br>
 
-| 字段       | 说明                                  |
-|:---------|:------------------------------------|
-| `model`  | 图片模型， `gpt-image-2`                 |
-| `prompt` | 图片编辑提示词                             |
-| `n`      | 生成数量，当前后端限制为 `1-4`                  |
-| `image`  | 需要编辑的图片文件，使用 multipart/form-data 上传 |
+| 字段               | 说明                                                                              |
+|:-----------------|:--------------------------------------------------------------------------------|
+| `model`          | 图片模型， `gpt-image-2`                                                             |
+| `prompt`         | 图片编辑提示词                                                                         |
+| `n`              | 生成数量，当前后端限制为 `1-4`                                                              |
+| `image`          | 需要编辑的图片文件，使用 multipart/form-data 上传                                              |
+| `stream`         | 可选，`true` 时返回 OpenAI 兼容 SSE 流式输出（事件结构同 `/v1/images/generations`），**长任务建议开启以避免反向代理超时** |
+| `partial_images` | 可选，`0-3`。语义同 `/v1/images/generations`，本接口接受该字段但仅在最终成像后发送 `image_generation.completed` |
 
 <br>
 </details>

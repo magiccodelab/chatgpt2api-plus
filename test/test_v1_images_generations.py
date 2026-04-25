@@ -74,9 +74,9 @@ class ImageGenerationsTests(unittest.TestCase):
                 chunk = json.loads(payload)
             except Exception:
                 continue
-            data = chunk.get("data")
-            if isinstance(data, list):
-                image_items.extend(item for item in data if isinstance(item, dict))
+            if str(chunk.get("type") or "") == "image_generation.completed":
+                if chunk.get("b64_json"):
+                    image_items.append(chunk)
 
         saved_paths = []
         for index, item in enumerate(image_items, start=1):

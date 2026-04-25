@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.support import raise_image_quota_error, require_auth_key, resolve_image_base_url
 from services.account_service import account_service
 from services.chatgpt_service import ChatGPTService, ImageGenerationError
-from utils.helper import is_image_chat_request, sse_json_stream
+from utils.helper import is_image_chat_request, sse_json_stream_with_heartbeat, sse_openai_image_stream
 
 
 class ImageGenerationRequest(BaseModel):
@@ -18,6 +18,7 @@ class ImageGenerationRequest(BaseModel):
     response_format: str = "b64_json"
     history_disabled: bool = True
     stream: bool | None = None
+    partial_images: int | None = Field(default=None, ge=0, le=3)
 
 
 class ChatCompletionRequest(BaseModel):
@@ -64,12 +65,13 @@ def create_router(chatgpt_service: ChatGPTService) -> APIRouter:
             except RuntimeError as exc:
                 raise_image_quota_error(exc)
             return StreamingResponse(
-                sse_json_stream(
+                sse_openai_image_stream(
                     chatgpt_service.stream_image_generation(
                         body.prompt, body.model, body.n, body.response_format, base_url
                     )
                 ),
                 media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         try:
             return await run_in_threadpool(
@@ -89,6 +91,7 @@ def create_router(chatgpt_service: ChatGPTService) -> APIRouter:
             n: int = Form(default=1),
             response_format: str = Form(default="b64_json"),
             stream: bool | None = Form(default=None),
+            partial_images: int | None = Form(default=None),
     ):
         require_auth_key(authorization)
         if n < 1 or n > 4:
@@ -107,8 +110,11 @@ def create_router(chatgpt_service: ChatGPTService) -> APIRouter:
             if not account_service.has_available_account():
                 raise_image_quota_error(RuntimeError("no available image quota"))
             return StreamingResponse(
-                sse_json_stream(chatgpt_service.stream_image_edit(prompt, images, model, n, response_format, base_url)),
+                sse_openai_image_stream(
+                    chatgpt_service.stream_image_edit(prompt, images, model, n, response_format, base_url)
+                ),
                 media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         try:
             return await run_in_threadpool(
@@ -128,8 +134,9 @@ def create_router(chatgpt_service: ChatGPTService) -> APIRouter:
                 except RuntimeError as exc:
                     raise_image_quota_error(exc)
             return StreamingResponse(
-                sse_json_stream(chatgpt_service.stream_chat_completion(payload)),
+                sse_json_stream_with_heartbeat(chatgpt_service.stream_chat_completion(payload)),
                 media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         return await run_in_threadpool(chatgpt_service.create_chat_completion, payload)
 
@@ -139,8 +146,9 @@ def create_router(chatgpt_service: ChatGPTService) -> APIRouter:
         payload = body.model_dump(mode="python")
         if bool(payload.get("stream")):
             return StreamingResponse(
-                sse_json_stream(chatgpt_service.stream_response(payload)),
+                sse_json_stream_with_heartbeat(chatgpt_service.stream_response(payload)),
                 media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         return await run_in_threadpool(chatgpt_service.create_response, payload)
 

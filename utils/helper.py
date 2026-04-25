@@ -75,6 +75,82 @@ def sse_json_stream(items) -> Iterator[str]:
     yield "data: [DONE]\n\n"
 
 
+def sse_openai_image_stream(items, heartbeat_interval: float = 15.0) -> Iterator[str]:
+    """把内部 image.generation.* chunks 转成 OpenAI 官方 SSE 事件格式。
+
+    输出符合 OpenAI `/v1/images/generations` 与 `/v1/images/edits` 的 streaming 协议，
+    在两次有效事件之间用 SSE 注释行 (`: heartbeat\\n\\n`) 维持长连接，避免反向代理超时。
+    逆向 ChatGPT 官网拿不到真正的 partial image 二进制，因此仅发 `image_generation.completed`
+    事件，等价于 OpenAI 文档中 `partial_images=0` 的合法行为。
+    """
+    yield ": stream-open\n\n"
+    q: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+
+    def producer() -> None:
+        try:
+            for item in items:
+                q.put(("data", item))
+        except Exception as exc:
+            q.put(("error", exc))
+        finally:
+            q.put(("end", None))
+
+    thread = threading.Thread(target=producer, name="sse-openai-image-producer", daemon=True)
+    thread.start()
+
+    image_index = 0
+    while True:
+        try:
+            kind, payload = q.get(timeout=heartbeat_interval)
+        except queue.Empty:
+            yield ": heartbeat\n\n"
+            continue
+        if kind == "data":
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("object") or "") != "image.generation.result":
+                continue
+            data_list = payload.get("data") if isinstance(payload.get("data"), list) else []
+            for item in data_list:
+                if not isinstance(item, dict):
+                    continue
+                b64 = str(item.get("b64_json") or "")
+                event_payload: dict[str, Any] = {
+                    "type": "image_generation.completed",
+                    "created": payload.get("created"),
+                    "index": image_index,
+                }
+                if b64:
+                    event_payload["b64_json"] = b64
+                url = item.get("url")
+                if url:
+                    event_payload["url"] = str(url)
+                if not b64 and not url:
+                    continue
+                yield "event: image_generation.completed\n"
+                yield f"data: {json.dumps(event_payload, ensure_ascii=False)}\n\n"
+                image_index += 1
+            continue
+        if kind == "error":
+            exc = payload
+            logger.warning({
+                "event": "sse_openai_image_stream_error",
+                "error_type": exc.__class__.__name__,
+                "error": str(exc),
+            })
+            error_payload = {
+                "type": "error",
+                "code": getattr(exc, "code", "upstream_error"),
+                "message": str(exc),
+            }
+            yield "event: error\n"
+            yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+            break
+        # kind == "end"
+        break
+    yield "data: [DONE]\n\n"
+
+
 def sse_json_stream_with_heartbeat(items, heartbeat_interval: float = 15.0) -> Iterator[str]:
     yield ": stream-open\n\n"
     q: "queue.Queue[tuple[str, Any]]" = queue.Queue()
